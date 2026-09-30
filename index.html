@@ -1,0 +1,178 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <link rel="stylesheet" href="style.css">
+  
+  <!-- Content Security Policy (CSP) Estricta -->
+  <meta http-equiv="Content-Security-Policy" content="
+    default-src 'none';
+    script-src 'self' https://cdn.sheetjs.com;
+    style-src 'self' 'unsafe-inline' https://fonts.googleapis.com;
+    font-src https://fonts.gstatic.com;
+    img-src 'self' data:;
+    connect-src 'none';
+    object-src 'none';
+    base-uri 'self';
+    form-action 'none';
+  ">
+
+  <title>Control de Avance de Inventario</title>
+  
+  <!-- Tipografía -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  
+  <!-- Estilos -->
+  <link rel="stylesheet" href="styles.css">
+
+  <!-- SheetJS -->
+  <script src="https://cdn.sheetjs.com/xlsx-0.20.2/package/dist/xlsx.full.min.js" defer></script>
+  <!-- Lógica de la Aplicación -->
+  <script src="app.js" defer></script>
+</head>
+<body>
+
+  <!-- Overlay Animado de Carga -->
+  <div id="processingOverlay" class="overlay hidden" role="alert" aria-live="assertive">
+    <div class="overlay-card">
+      <div class="spinner"></div>
+      <h3 id="overlayTitle">Procesando Archivo...</h3>
+      <p id="overlayMessage">Un momento por favor.</p>
+    </div>
+  </div>
+
+  <!-- Encabezado -->
+  <header class="app-header">
+    <div class="container header-container">
+      <div>
+        <h1 class="brand-title">Control de Avance de Inventario</h1>
+        <p class="brand-subtitle">Cálculo en tiempo real: realizado vs. faltante</p>
+      </div>
+      <div class="badge-status" id="systemStatus">Esperando Archivos</div>
+    </div>
+  </header>
+
+  <main class="container">
+    
+    <!-- Sección de Carga de Archivos (2 Columnas) -->
+    <section class="grid-controls">
+      
+      <!-- Carga 1: Base Teórica -->
+      <div class="card drop-card" id="dropMaster">
+        <div class="card-header">
+          <span class="icon">📦</span>
+          <h2>1. Inventario Maestro (Base)</h2>
+        </div>
+        <p class="card-desc">Archivo con el total teórico a contar (SKU, Descripción, Cantidad).</p>
+        <div class="drop-zone" id="zoneMaster">
+          <input type="file" id="fileMaster" accept=".xlsx, .xls, .csv" class="file-input">
+          <label for="fileMaster" class="file-label">
+            <strong>Haz clic para cargar</strong> o arrastra el archivo aquí
+            <span class="file-name" id="nameMaster">Ningún archivo cargado</span>
+          </label>
+        </div>
+      </div>
+
+      <!-- Carga 2: Avance Físico -->
+      <div class="card drop-card" id="dropPhysical">
+        <div class="card-header">
+          <span class="icon">📋</span>
+          <h2>2. Conteo Físico (Lo Realizado)</h2>
+        </div>
+        <p class="card-desc">Archivo con los registros y cantidades contadas en campo.</p>
+        <div class="drop-zone" id="zonePhysical">
+          <input type="file" id="filePhysical" accept=".xlsx, .xls, .csv" class="file-input">
+          <label for="filePhysical" class="file-label">
+            <strong>Haz clic para cargar</strong> o arrastra el archivo aquí
+            <span class="file-name" id="namePhysical">Ningún archivo cargado</span>
+          </label>
+        </div>
+      </div>
+
+    </section>
+
+    <!-- Dashboard de Avance (KPIs) -->
+    <section class="kpi-grid">
+      <div class="kpi-card">
+        <span class="kpi-label">Total a Contar</span>
+        <span class="kpi-value" id="kpiMasterCount">0</span>
+        <span class="kpi-sub" id="kpiMasterUnits">0 unidades teóricas</span>
+      </div>
+
+      <div class="kpi-card highlight-card">
+        <span class="kpi-label">Total Realizado (Contado)</span>
+        <span class="kpi-value" id="kpiCountedItems">0</span>
+        <span class="kpi-sub" id="kpiCountedUnits">0 unidades contadas</span>
+      </div>
+
+      <div class="kpi-card alert-card">
+        <span class="kpi-label">Total que Hace Falta</span>
+        <span class="kpi-value" id="kpiPendingCount">0</span>
+        <span class="kpi-sub" id="kpiPendingUnits">0 unidades pendientes</span>
+      </div>
+    </section>
+
+    <!-- Barra de Progreso del Avance -->
+    <section class="card progress-section">
+      <div class="progress-info">
+        <h3>Porcentaje General de Avance</h3>
+        <span id="progressPercent" class="progress-percent">0.0%</span>
+      </div>
+      <div class="progress-track">
+        <div class="progress-fill" id="progressBar" style="width: 0%;"></div>
+      </div>
+    </section>
+
+    <!-- Tabla de Registros Detallados -->
+    <section class="card table-container-card">
+      <div class="table-toolbar">
+        <div class="tabs-group" role="tablist">
+          <button class="tab-btn active" data-filter="all">Todos (<span id="countTabAll">0</span>)</button>
+          <button class="tab-btn" data-filter="pending">Faltantes (<span id="countTabPending">0</span>)</button>
+         
+        </div>
+        <div class="toolbar-actions">
+          <input type="text" id="tableSearch" class="search-input" placeholder="Buscar por SKU o descripción...">
+          <button id="btnExport" class="btn btn-primary" disabled>Descargar Reporte (.xlsx)</button>
+        </div>
+      </div>
+
+      <!-- Tabla -->
+      <div class="table-responsive">
+        <table class="data-table" id="reconciliationTable">
+          <thead>
+            <tr>
+              <th>SKU / Código</th>
+              <th>Descripción</th>
+              <th class="text-right">Teórico</th>
+              <th class="text-right">Contado</th>
+              <th class="text-right">Diferencia</th>
+              <th class="text-center">Estado</th>
+            </tr>
+          </thead>
+          <tbody id="tableBody">
+            <tr>
+              <td colspan="6" class="table-empty">Carga los archivos para visualizar el detalle ítem por ítem.</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      
+      <div class="table-footer">
+        <span id="tableSummary">Mostrando 0 registros</span>
+      </div>
+    </section>
+
+  </main>
+
+  <footer class="app-footer">
+    <div class="container">
+      <p>Herramienta de Auditoría de Inventario • Procesamiento Local Seguro</p>
+    </div>
+  </footer>
+<script src="app.js"></script>
+</body>
+</html>
